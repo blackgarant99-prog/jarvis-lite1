@@ -207,16 +207,44 @@ def clamp_lines(value: str | None) -> int:
 
 # ── Secret masking ─────────────────────────────────────────────────────────────
 
+# Matches key=value / key: value credential patterns
 _SECRET_RE = re.compile(
     r"(?i)(token|key|secret|password|passwd|pwd|auth|bearer|api_key|apikey)\s*[=:]\s*\S+",
 )
 
+# Matches credentials embedded in connection URLs:
+#   scheme://user:pass@host  →  scheme://[REDACTED]@host
+#   redis://:pass@host       →  redis://[REDACTED]@host
+_URL_CRED_RE = re.compile(r"([a-zA-Z][a-zA-Z0-9+\-.]*://)([^@\s]+@)")
+
 
 def mask_secrets(text: str) -> str:
-    def _replace(m: re.Match) -> str:
+    # Pass 1: key=value and key: value patterns
+    def _replace_kv(m: re.Match) -> str:
         prefix = re.split(r"[=:]", m.group(0), 1)[0]
         return f"{prefix}=[REDACTED]"
-    return _SECRET_RE.sub(_replace, text)
+    text = _SECRET_RE.sub(_replace_kv, text)
+    # Pass 2: URL-embedded credentials
+    text = _URL_CRED_RE.sub(r"\1[REDACTED]@", text)
+    return text
+
+
+def _selftest_mask_secrets() -> None:
+    """Verify masking behaviour. Call manually during development; not invoked at runtime."""
+    # key=value patterns
+    assert "token=[REDACTED]" in mask_secrets("token=abc123")
+    assert "password=[REDACTED]" in mask_secrets("password=hunter2")
+    assert "api_key=[REDACTED]" in mask_secrets("api_key=somekey")
+    # URL credential patterns
+    assert mask_secrets("postgresql://admin:s3cr3t@db:5432/app") == "postgresql://[REDACTED]@db:5432/app"
+    assert mask_secrets("postgres://user:pass@host/db") == "postgres://[REDACTED]@host/db"
+    assert mask_secrets("redis://:pass123@redis:6379") == "redis://[REDACTED]@redis:6379"
+    assert mask_secrets("redis://user:pass@host:6379") == "redis://[REDACTED]@host:6379"
+    assert mask_secrets("mongodb://user:pass@host/db") == "mongodb://[REDACTED]@host/db"
+    assert mask_secrets("mysql://user:pass@host/db") == "mysql://[REDACTED]@host/db"
+    # Safe strings must not be altered
+    assert mask_secrets("no secrets here") == "no secrets here"
+    assert mask_secrets("https://example.com/path") == "https://example.com/path"
 
 
 def _safe_log_output(raw: str) -> str:
