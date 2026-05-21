@@ -219,6 +219,12 @@ def mask_secrets(text: str) -> str:
     return _SECRET_RE.sub(_replace, text)
 
 
+def _safe_log_output(raw: str) -> str:
+    """Mask secrets and escape triple backticks so they can't break Telegram Markdown code blocks."""
+    text = mask_secrets(raw)
+    return text.replace("```", "` ``")
+
+
 # ── Error patterns for /errors command ────────────────────────────────────────
 
 ERROR_PATTERNS = [
@@ -464,6 +470,7 @@ def cmd_logs(chat_id: int, user_id: int, username: str, args: list) -> None:
     audit(user_id, username, "/logs", container, "requested")
 
     out, _ = run_cmd(["docker", "logs", "--tail", str(lines), container])
+    out = _safe_log_output(out)
     text = f"*Logs: {container}* (last {lines} lines)\n```\n{out[:3500] or '(empty)'}\n```"
     audit(user_id, username, "/logs", container, "completed")
     send_message(chat_id, text, parse_mode="Markdown")
@@ -484,6 +491,7 @@ def cmd_errors(chat_id: int, user_id: int, username: str, args: list) -> None:
     audit(user_id, username, "/errors", container, "requested")
 
     out, _ = run_cmd(["docker", "logs", "--tail", str(lines), container])
+    out = _safe_log_output(out)
     error_lines = [
         line for line in out.splitlines()
         if any(pat in line.lower() for pat in ERROR_PATTERNS)
@@ -613,6 +621,7 @@ def handle_callback(callback_query: dict) -> None:
             answer_callback(cb_id, "Fetching logs...")
             audit(user_id, username, "cb:logs", container, "requested")
             out, _ = run_cmd(["docker", "logs", "--tail", str(DEFAULT_LOG_LINES), container])
+            out = _safe_log_output(out)
             text = f"*Logs: {container}*\n```\n{out[:3500] or '(empty)'}\n```"
             send_message(chat_id, text, parse_mode="Markdown")
             audit(user_id, username, "cb:logs", container, "completed")
@@ -621,6 +630,7 @@ def handle_callback(callback_query: dict) -> None:
             answer_callback(cb_id, "Filtering errors...")
             audit(user_id, username, "cb:errors", container, "requested")
             out, _ = run_cmd(["docker", "logs", "--tail", str(DEFAULT_LOG_LINES), container])
+            out = _safe_log_output(out)
             error_lines = [
                 l for l in out.splitlines()
                 if any(pat in l.lower() for pat in ERROR_PATTERNS)
@@ -683,8 +693,16 @@ def handle_callback(callback_query: dict) -> None:
 
     elif action == "cancel_restart":
         code = payload
-        entry = _pending.pop(code, None)
-        container = entry["container"] if entry else "(unknown)"
+        entry = _pending.get(code)
+        if entry is None:
+            answer_callback(cb_id, "Action not found or already expired.")
+            return
+        if entry["user_id"] != user_id:
+            answer_callback(cb_id, "Access denied.")
+            audit(user_id, username, "cb:cancel_restart", code, "rejected")
+            return
+        container = entry["container"]
+        del _pending[code]
         audit(user_id, username, "cb:cancel_restart", container, "cancelled")
         answer_callback(cb_id, "Restart cancelled.")
         send_message(chat_id, f"❌ Restart of `{container}` cancelled.", parse_mode="Markdown")

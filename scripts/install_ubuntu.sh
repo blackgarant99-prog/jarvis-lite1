@@ -49,8 +49,9 @@ echo "[3/6] Preparing $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR/logs"
 mkdir -p "$INSTALL_DIR/app"
 
-# Copy project files
-cp -r "$REPO_DIR/app/"      "$INSTALL_DIR/app/"
+# Copy project files — use /. to copy contents, not the directory itself,
+# ensuring the result is $INSTALL_DIR/app/bot.py and NOT app/app/bot.py
+cp -r "$REPO_DIR/app/." "$INSTALL_DIR/app/"
 cp    "$REPO_DIR/requirements.txt" "$INSTALL_DIR/"
 
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
