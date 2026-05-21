@@ -1,0 +1,27 @@
+[Unit]
+Description=Jarvis Lite — Telegram VDS management bot
+Documentation=https://github.com/blackgarant99-prog/jarvis-lite1
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=jarvis
+Group=jarvis
+WorkingDirectory=/opt/jarvis-lite
+EnvironmentFile=/opt/jarvis-lite/.env
+ExecStart=/opt/jarvis-lite/.venv/bin/python /opt/jarvis-lite/app/bot.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jarvis-lite
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/jarvis-lite/logs
+
+[Install]
+WantedBy=multi-user.target
